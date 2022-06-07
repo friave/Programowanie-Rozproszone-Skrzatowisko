@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <mpi.h>
 #include <unistd.h>
-
+#include <stdio.h>
 
 #define W 30
 #define KONIE 8 
@@ -35,7 +35,8 @@
 #define INFO_KONIE 5000
 #define INFO_WSTAZKI 5001
 #define INFO_PACJENCI 5002
-#define INFO_SALKI 5003s
+#define INFO_SALKI 5003
+#define INFO_ZASOBY 5004
 
 
 pthread_mutex_t lamport_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -55,9 +56,9 @@ struct kolejka_info {
   	int id;     
     //bool operator==(const struct kolejka_info_s &x) { return true;}
 
-    bool operator==(const kolejka_info &a) const{
-        return id==a.id;
-    }
+   // bool operator==(const kolejka_info &a) const{
+    //    return id==a.id;
+    //}
 };
 
 struct kolejka_info_wstazki{
@@ -66,10 +67,19 @@ struct kolejka_info_wstazki{
   	int wstazki;
     //bool operator==(const struct kolejka_info_wstazki_s &x) { return true;}      
 
-    bool operator==(const kolejka_info_wstazki &a) const{
-        return id==a.id;
-    }
+    //bool operator==(const kolejka_info_wstazki &a) const{
+     //   return id==a.id;
+    //}
 };
+
+bool operator==(kolejka_info const& a, kolejka_info const& b){
+	return a.id == b.id;
+}
+
+bool operator==(kolejka_info_wstazki const& a, kolejka_info_wstazki const& b){
+	return a.id == b.id;
+}
+
 
 int zegar;
 
@@ -106,11 +116,21 @@ bool por(kolejka_info A,  kolejka_info B){
 			return A.id < B.id;
 }
 
+bool por_ze_wstazkami(kolejka_info_wstazki A,  kolejka_info_wstazki B){
+		if (A.lamport < B.lamport)
+			return true;
+		if (A.lamport > B.lamport)
+			return false;
+		else
+			return A.id < B.id;
+
+}
+
 int suma_wstazek(std::vector<kolejka_info_wstazki> kolejka_z_info, kolejka_info_wstazki zamowienie) {
 
     int suma = zamowienie.wstazki;
 
-    for(std::vector<kolejka_info_wstazki>::iterator   it = kolejka_z_info.begin(); it != find(kolejka_z_info.begin(), kolejka_z_info.end(), 7); it++ )
+    for(std::vector<kolejka_info_wstazki>::const_iterator   it = kolejka_z_info.begin(); it != find(kolejka_z_info.begin(), kolejka_z_info.end(), zamowienie); it++ )
     {
         kolejka_info_wstazki element = *it;
         suma += element.wstazki;
@@ -132,14 +152,32 @@ int ile_jest_przedemna(std::vector<kolejka_info> kolejka_z_info, kolejka_info za
     return -1;
 }
 
+void usun_z_vectora(std::vector<kolejka_info> & kolejka, int id_procesu){
+	kolejka.erase(
+			std::remove_if(kolejka.begin(), kolejka.end(), [&](kolejka_info const & miejsce_w_kolejce){
+				return miejsce_w_kolejce.id == id_procesu;
+				}),
+			kolejka.end());
+}
+
+
+void usun_z_vectora_wstazek(std::vector<kolejka_info_wstazki> & kolejka, int id_procesu){
+	kolejka.erase(
+			std::remove_if(kolejka.begin(), kolejka.end(), [&](kolejka_info_wstazki const & miejsce_w_kolejce){
+				return miejsce_w_kolejce.id == id_procesu;
+				}),
+			kolejka.end());
+}
+			
+
 void *receive_loop_skrzat(void * arg) {
-    int msg[2]; //msg[0] - timestamp msg[1] - ? 
-    int msgS[2]; 
+    int msg[3]; //msg[0] - timestamp msg[1] - ? 
+    int msgS[3]; 
     while(true){
         
         MPI_Status status;
         
-        MPI_Recv(msg, 2, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+        MPI_Recv(msg, 3, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
         
         switch(status.MPI_TAG){
 
@@ -148,7 +186,8 @@ void *receive_loop_skrzat(void * arg) {
             	zwieksz_lamporta(msg[0]);
 
                 msgS[0] = zegar;
-                msgS[1] = 10; //placeholder
+		msgS[1] = rank;
+                msgS[2] = 10; //placeholder
 
                 printf("Lamport: %d . Odebrałem REQ_KONIE od %d Moj nr to %d \n",msg[0], status.MPI_SOURCE, rank );
             		
@@ -162,29 +201,30 @@ void *receive_loop_skrzat(void * arg) {
                 pthread_mutex_unlock(&kolejka_mutex);
 
                 pthread_mutex_lock(&wysylanie_mutex);
-                MPI_Send(&msgS, 2, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
+                MPI_Send(&msgS, 3, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
                 pthread_mutex_unlock(&wysylanie_mutex);
 
             case REQ_WSTAZKI:
 
                 msgS[0] = zegar;
-                msgS[1] = 10; //placeholder
+		msgS[1] = rank;
+                msgS[2] = 10; //placeholder
 
                 zwieksz_lamporta(msg[0]);
-                printf("Lamport: %d . Odebrałem REQ_KONIE od %d Moj nr to %d \n",msg[0], status.MPI_SOURCE, rank );
+                printf("Lamport: %d . Odebrałem REQ_WSTAZKI od %d Moj nr to %d \n",msg[0], status.MPI_SOURCE, rank );
             		
                 kolejka_info_wstazki temp_kolejka_wstazki;
                 temp_kolejka_wstazki.lamport = msg[0];
                 temp_kolejka_wstazki.id = status.MPI_SOURCE;
-                temp_kolejka_wstazki.wstazki = msg[1];
+                temp_kolejka_wstazki.wstazki = msg[2];
 
                 pthread_mutex_lock(&kolejka_ze_wstazkami_mutex);
                 kolejka_ze_wstazkami.push_back(temp_kolejka_wstazki);
-                sort(kolejka_ze_wstazkami.begin(), kolejka_ze_wstazkami.end(), por);
+                sort(kolejka_ze_wstazkami.begin(), kolejka_ze_wstazkami.end(), por_ze_wstazkami);
                 pthread_mutex_unlock(&kolejka_ze_wstazkami_mutex);
 
                 pthread_mutex_lock(&wysylanie_mutex);
-                MPI_Send(&msgS, 2, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
+                MPI_Send(&msgS, 3, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
                 pthread_mutex_unlock(&wysylanie_mutex);
 
             case ACK_ZGODA:
@@ -195,7 +235,9 @@ void *receive_loop_skrzat(void * arg) {
 
                 printf("Lamport: %d. My Lamport: %d.Odebrałem ACK_ZGODA od %d Moj nr: %d \n",msg[0],zegar ,status.MPI_SOURCE, rank);
 
-            case INFO_KONIE:
+            /* To bedzie potrzebne jesli beda psycholozki
+	    
+	    case INFO_KONIE:
                 pthread_mutex_lock(&konie_mutex);
                     kolejka.erase(kolejka.begin());
                 pthread_mutex_unlock(&konie_mutex);
@@ -207,6 +249,17 @@ void *receive_loop_skrzat(void * arg) {
                 kolejka_ze_wstazkami.erase(kolejka_ze_wstazkami.begin());
                 wstazki += msg[1];
                 pthread_mutex_unlock(&wstazki_mutex);
+		*/
+		
+		case INFO_ZASOBY:
+			 pthread_mutex_lock(&konie_mutex);
+			 usun_z_vectora(kolejka, status.MPI_SOURCE);
+	 		 pthread_mutex_unlock(&konie_mutex);
+
+			pthread_mutex_lock(&wstazki_mutex);
+			usun_z_vectora_wstazek(kolejka_ze_wstazkami, status.MPI_SOURCE);
+       			wstazki+=msg[2];
+			pthread_mutex_unlock(&wstazki_mutex);		
         }
 
     }
@@ -225,7 +278,7 @@ MPI_Comm_size( MPI_COMM_WORLD , &size);
 
 srand(time(0));
 
-int msg[2];
+int msg[3];
 
 zegar = 100 + rank;
 
@@ -248,7 +301,7 @@ zegar = 100 + rank;
 
         pthread_mutex_lock(&wysylanie_mutex);
         for(int i = 0; i<= size/2; i++){
-            MPI_Send(&msg, 2, MPI_INT, i, REQ_KONIE, MPI_COMM_WORLD);
+            MPI_Send(&msg, 3, MPI_INT, i, REQ_KONIE, MPI_COMM_WORLD);
             printf("Lamport: %d . Wysłałem REQ_KONIE do %d .  Moj nr:%d \n",zegar ,i,rank);
         }
         pthread_mutex_unlock(&wysylanie_mutex);
@@ -284,7 +337,7 @@ zegar = 100 + rank;
 
         pthread_mutex_lock(&wysylanie_mutex);
         for(int i = 0; i<= size/2; i++){
-            MPI_Send(&msg, 2, MPI_INT, i, REQ_WSTAZKI, MPI_COMM_WORLD);
+            MPI_Send(&msg, 3, MPI_INT, i, REQ_WSTAZKI, MPI_COMM_WORLD);
             printf("Lamport: %d . Wysłałem REQ_WSTAZKI do %d .  Moj nr:%d \n",zegar ,i,rank);
         }
         pthread_mutex_unlock(&wysylanie_mutex);
@@ -305,15 +358,21 @@ zegar = 100 + rank;
         stan = ZAPLATA;
         sleep(rand() % MAX_CZAS);
 
-        pthread_mutex_lock(&kolejka_mutex);
+	pthread_mutex_lock(&wysylanie_mutex);
+	for(int i =0; i<=size/2; i++){
+		MPI_Send(&msg, 3, MPI_INT, i, INFO_ZASOBY, MPI_COMM_WORLD);
+		printf("Lamport: %d . Wysłałem INFO_ZASOBY do %d . Moj nr:%d \n", zegar, i, rank); 
+	}
+	pthread_mutex_unlock(&wysylanie_mutex);
+       // pthread_mutex_lock(&kolejka_mutex);
         
-        std::remove(kolejka.begin(), kolejka.end(), moje_zamowienie_koni);
+        //std::remove(kolejka.begin(), kolejka.end(), moje_zamowienie_koni);
         //kolejka.erase( , kolejka.end());
-        pthread_mutex_unlock(&kolejka_mutex);
+        //pthread_mutex_unlock(&kolejka_mutex);
 
-        pthread_mutex_lock(&kolejka_ze_wstazkami_mutex);
-        kolejka_ze_wstazkami.erase(std::remove(kolejka_ze_wstazkami.begin(), kolejka_ze_wstazkami.end(), moje_zamowienie_wstazki), kolejka_ze_wstazkami.end());
-        pthread_mutex_unlock(&kolejka_ze_wstazkami_mutex);
+       // pthread_mutex_lock(&kolejka_ze_wstazkami_mutex);
+        //kolejka_ze_wstazkami.erase(std::remove(kolejka_ze_wstazkami.begin(), kolejka_ze_wstazkami.end(), moje_zamowienie_wstazki), kolejka_ze_wstazkami.end());
+        //pthread_mutex_unlock(&kolejka_ze_wstazkami_mutex);
 
         }
 }
