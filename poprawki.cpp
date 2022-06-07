@@ -10,8 +10,8 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#define W 30
-#define KONIE 8 
+#define W 15
+#define KONIE 4 
 #define S 6
 #define MAX_CZAS 10
 
@@ -52,8 +52,8 @@ pthread_mutex_t wysylanie_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 
 struct kolejka_info {
-  	int lamport;
-  	int id;     
+  	int id;
+  	int lamport;     
     //bool operator==(const struct kolejka_info_s &x) { return true;}
 
    // bool operator==(const kolejka_info &a) const{
@@ -62,8 +62,8 @@ struct kolejka_info {
 };
 
 struct kolejka_info_wstazki{
-  	int lamport;
   	int id;
+  	int lamport;
   	int wstazki;
     //bool operator==(const struct kolejka_info_wstazki_s &x) { return true;}      
 
@@ -178,21 +178,23 @@ void *receive_loop_skrzat(void * arg) {
         MPI_Status status;
         
         MPI_Recv(msg, 3, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+	//printf("Odebralem wiadomosc od %d. Moj numer to %d", status.MPI_SOURCE, rank);
         
         switch(status.MPI_TAG){
 
             case REQ_KONIE:
 
-            	zwieksz_lamporta(msg[0]);
+            	zwieksz_lamporta(msg[1]);
 
-                msgS[0] = zegar;
-		msgS[1] = rank;
+                msgS[0] = rank;
+		msgS[1] = zegar;
                 msgS[2] = 10; //placeholder
 
-                printf("Lamport: %d . Odebrałem REQ_KONIE od %d Moj nr to %d \n",msg[0], status.MPI_SOURCE, rank );
+                printf("Lamport: %d . Odebralem REQ_KONIE od %d Moj nr to %d \n",msg[1], status.MPI_SOURCE, rank );
             		
                 kolejka_info temp_kolejka;
-                temp_kolejka.lamport = msg[0];
+                temp_kolejka.lamport = msg[1];
                 temp_kolejka.id = status.MPI_SOURCE;
 
                 pthread_mutex_lock(&kolejka_mutex);
@@ -200,21 +202,28 @@ void *receive_loop_skrzat(void * arg) {
                 sort(kolejka.begin(), kolejka.end(), por);
                 pthread_mutex_unlock(&kolejka_mutex);
 
+
+		for(const kolejka_info &k : kolejka){
+			std::cout<<"Kolejka: proces"<< k.id << " Moj numer procesu "<<rank<<"\n";
+		}
+
                 pthread_mutex_lock(&wysylanie_mutex);
                 MPI_Send(&msgS, 3, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
-                pthread_mutex_unlock(&wysylanie_mutex);
+		pthread_mutex_unlock(&wysylanie_mutex);
+
+		break;
 
             case REQ_WSTAZKI:
 
-                msgS[0] = zegar;
-		msgS[1] = rank;
+                msgS[0] = rank;
+		msgS[1] = zegar;
                 msgS[2] = 10; //placeholder
 
-                zwieksz_lamporta(msg[0]);
-                printf("Lamport: %d . Odebrałem REQ_WSTAZKI od %d Moj nr to %d \n",msg[0], status.MPI_SOURCE, rank );
+                zwieksz_lamporta(msg[1]);
+                printf("Lamport: %d . Odebralem REQ_WSTAZKI od %d Moj nr to %d \n",msg[1], status.MPI_SOURCE, rank );
             		
                 kolejka_info_wstazki temp_kolejka_wstazki;
-                temp_kolejka_wstazki.lamport = msg[0];
+                temp_kolejka_wstazki.lamport = msg[1];
                 temp_kolejka_wstazki.id = status.MPI_SOURCE;
                 temp_kolejka_wstazki.wstazki = msg[2];
 
@@ -227,14 +236,17 @@ void *receive_loop_skrzat(void * arg) {
                 MPI_Send(&msgS, 3, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
                 pthread_mutex_unlock(&wysylanie_mutex);
 
+		break;
+
             case ACK_ZGODA:
 
                 pthread_mutex_lock(&zgody_mutex);
                 zgody +=1;
                 pthread_mutex_unlock(&zgody_mutex);
 
-                printf("Lamport: %d. My Lamport: %d.Odebrałem ACK_ZGODA od %d Moj nr: %d \n",msg[0],zegar ,status.MPI_SOURCE, rank);
+                printf("Lamport: %d. Moj Lamport: %d.Odebralem ACK_ZGODA od %d Moj nr: %d \n",msg[1],zegar ,status.MPI_SOURCE, rank);
 
+		break;
             /* To bedzie potrzebne jesli beda psycholozki
 	    
 	    case INFO_KONIE:
@@ -259,7 +271,10 @@ void *receive_loop_skrzat(void * arg) {
 			pthread_mutex_lock(&wstazki_mutex);
 			usun_z_vectora_wstazek(kolejka_ze_wstazkami, status.MPI_SOURCE);
        			wstazki+=msg[2];
-			pthread_mutex_unlock(&wstazki_mutex);		
+			pthread_mutex_unlock(&wstazki_mutex);	
+
+			printf("Odebralem INFO_ZASOBY od %d. Moj numer to %d. \n", status.MPI_SOURCE, rank);
+			break;	
         }
 
     }
@@ -282,6 +297,9 @@ int msg[3];
 
 zegar = 100 + rank;
 
+pthread_t watek_odbiorczy;
+pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
+
         while(true){
             stan = ZASPOKOJONY;
                 sleep(rand() % MAX_CZAS);
@@ -300,15 +318,17 @@ zegar = 100 + rank;
 
 
         pthread_mutex_lock(&wysylanie_mutex);
-        for(int i = 0; i<= size/2; i++){
+        for(int i = 0; i< size; i++){
             MPI_Send(&msg, 3, MPI_INT, i, REQ_KONIE, MPI_COMM_WORLD);
             printf("Lamport: %d . Wysłałem REQ_KONIE do %d .  Moj nr:%d \n",zegar ,i,rank);
         }
         pthread_mutex_unlock(&wysylanie_mutex);
 
-        while(zgody<size/2){//or?
+        while(zgody!=size){//or?
             //uwu
         }
+
+	printf("Uzyskalem zgody na konie. Moj numer to %d. \n",rank);
 
 
         while (ile_jest_przedemna(kolejka, moje_zamowienie_koni) < KONIE)
@@ -318,7 +338,7 @@ zegar = 100 + rank;
         
         //TUTAJ BIERZE KONIA JAK JEST W DOBRYM MIEJSCU KOLEJKI
         //JESLI JEST W MIEJSCU KOLEJKI GDZIE MIEJSCE <= ILOSC MAX KONI
-
+	printf("Mam konia. Moj numer to %d. \n", rank);
 
         zgody = 0;
 
@@ -336,21 +356,22 @@ zegar = 100 + rank;
 
 
         pthread_mutex_lock(&wysylanie_mutex);
-        for(int i = 0; i<= size/2; i++){
+        for(int i = 0; i< size; i++){
             MPI_Send(&msg, 3, MPI_INT, i, REQ_WSTAZKI, MPI_COMM_WORLD);
             printf("Lamport: %d . Wysłałem REQ_WSTAZKI do %d .  Moj nr:%d \n",zegar ,i,rank);
         }
         pthread_mutex_unlock(&wysylanie_mutex);
 
-        while(zgody<size/2 ){//or?
+        while(zgody!=size ){//or?
             //uwu
         }
 
+	printf("Uzyskalem zgody na wstazki. Moj numer to %d. \n",rank);
         while (suma_wstazek(kolejka_ze_wstazkami,moje_zamowienie_wstazki) <= W)
         {
             /* code */
         }
-        
+        printf("Mam wstazki. Moj numer to %d. \n", rank);
 
         //TUTAJ BIERZE WSTAZKI
         //JESLI SUMA WSTAZEK JEGO I OSOB W KOLEJCE PRZED NIM JEST <= MAX ILOSCI WSTAZEK
@@ -359,7 +380,7 @@ zegar = 100 + rank;
         sleep(rand() % MAX_CZAS);
 
 	pthread_mutex_lock(&wysylanie_mutex);
-	for(int i =0; i<=size/2; i++){
+	for(int i =0; i<size; i++){
 		MPI_Send(&msg, 3, MPI_INT, i, INFO_ZASOBY, MPI_COMM_WORLD);
 		printf("Lamport: %d . Wysłałem INFO_ZASOBY do %d . Moj nr:%d \n", zegar, i, rank); 
 	}
