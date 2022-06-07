@@ -10,8 +10,8 @@
 #include <unistd.h>
 #include <stdio.h>
 
-#define W 15
-#define KONIE 4 
+#define W 20
+#define KONIE 2 
 #define S 6
 #define MAX_CZAS 10
 
@@ -147,6 +147,7 @@ int ile_jest_przedemna(std::vector<kolejka_info> kolejka_z_info, kolejka_info za
     if (it != kolejka_z_info.end()) 
     {
         int index = it - kolejka_z_info.begin();
+	//printf("Przedemna jest %d koni. Moj numer to %d \n",index, rank);
         return index + 1;
     }
     return -1;
@@ -201,12 +202,7 @@ void *receive_loop_skrzat(void * arg) {
                 kolejka.push_back(temp_kolejka);
                 sort(kolejka.begin(), kolejka.end(), por);
                 pthread_mutex_unlock(&kolejka_mutex);
-
-
-		for(const kolejka_info &k : kolejka){
-			std::cout<<"Kolejka: proces"<< k.id << " Moj numer procesu "<<rank<<"\n";
-		}
-
+	
                 pthread_mutex_lock(&wysylanie_mutex);
                 MPI_Send(&msgS, 3, MPI_INT, status.MPI_SOURCE, ACK_ZGODA, MPI_COMM_WORLD);
 		pthread_mutex_unlock(&wysylanie_mutex);
@@ -264,15 +260,33 @@ void *receive_loop_skrzat(void * arg) {
 		*/
 		
 		case INFO_ZASOBY:
+
+//			
+//			for(const kolejka_info &k : kolejka){
+//				std::cout<<"Kolejka przed, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
+//			}
+
 			 pthread_mutex_lock(&konie_mutex);
 			 usun_z_vectora(kolejka, status.MPI_SOURCE);
 	 		 pthread_mutex_unlock(&konie_mutex);
+
+//			for(const kolejka_info &k : kolejka){
+//				std::cout<<"Kolejka po, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
+//			}
+
+//			for(const kolejka_info_wstazki &k : kolejka_ze_wstazkami){
+//				std::cout<<"Kolejka przed, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
+//			}
 
 			pthread_mutex_lock(&wstazki_mutex);
 			usun_z_vectora_wstazek(kolejka_ze_wstazkami, status.MPI_SOURCE);
        			wstazki+=msg[2];
 			pthread_mutex_unlock(&wstazki_mutex);	
 
+//			for(const kolejka_info_wstazki &k : kolejka_ze_wstazkami){
+//				std::cout<<"Kolejka po, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
+//			}
+			
 			printf("Odebralem INFO_ZASOBY od %d. Moj numer to %d. \n", status.MPI_SOURCE, rank);
 			break;	
         }
@@ -331,7 +345,7 @@ pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
 	printf("Uzyskalem zgody na konie. Moj numer to %d. \n",rank);
 
 
-        while (ile_jest_przedemna(kolejka, moje_zamowienie_koni) < KONIE)
+        while (ile_jest_przedemna(kolejka, moje_zamowienie_koni) > KONIE)
         {
             /* code */
         }
@@ -367,7 +381,7 @@ pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
         }
 
 	printf("Uzyskalem zgody na wstazki. Moj numer to %d. \n",rank);
-        while (suma_wstazek(kolejka_ze_wstazkami,moje_zamowienie_wstazki) <= W)
+        while (suma_wstazek(kolejka_ze_wstazkami,moje_zamowienie_wstazki) > W)
         {
             /* code */
         }
