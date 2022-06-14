@@ -12,30 +12,13 @@
 
 #define W 20
 #define KONIE 2 
-#define S 6
 #define MAX_CZAS 10
-
-#define ZASPOKOJONY 1000
-#define CZEKA_NA_KONIA 1001
-#define CZEKA_NA_WSTAZKI 1002
-#define ZAPLATA 1003
-
-#define NA_PRZERWIE 2000
-#define CZEKA_NA_PACJENTA 2001
-#define CZEKA_NA_SALKE 2002
-#define PRACUJE 2003
 
 #define REQ_KONIE 3000
 #define REQ_WSTAZKI 3001
-#define REQ_PACJENCI 3002
-#define REQ_SALKI 3003
 
 #define ACK_ZGODA 4000
 
-#define INFO_KONIE 5000
-#define INFO_WSTAZKI 5001
-#define INFO_PACJENCI 5002
-#define INFO_SALKI 5003
 #define INFO_ZASOBY 5004
 
 
@@ -44,8 +27,6 @@ pthread_mutex_t kolejka_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t kolejka_ze_wstazkami_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t konie_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t wstazki_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t pacjenci_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t salki_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t zgody_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t wysylanie_mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -54,22 +35,12 @@ pthread_mutex_t wysylanie_mutex = PTHREAD_MUTEX_INITIALIZER;
 struct kolejka_info {
   	int id;
   	int lamport;     
-    //bool operator==(const struct kolejka_info_s &x) { return true;}
-
-   // bool operator==(const kolejka_info &a) const{
-    //    return id==a.id;
-    //}
 };
 
 struct kolejka_info_wstazki{
   	int id;
   	int lamport;
   	int wstazki;
-    //bool operator==(const struct kolejka_info_wstazki_s &x) { return true;}      
-
-    //bool operator==(const kolejka_info_wstazki &a) const{
-     //   return id==a.id;
-    //}
 };
 
 bool operator==(kolejka_info const& a, kolejka_info const& b){
@@ -87,7 +58,6 @@ int size,rank;
 
 int konie;
 int wstazki;
-int salki;
 
 int zgody;
 
@@ -95,8 +65,6 @@ int stan;
 
 kolejka_info moje_zamowienie_koni;
 kolejka_info_wstazki moje_zamowienie_wstazki;
-
-
 
 std::vector<kolejka_info> kolejka = {};  //dla skrzatow to kolejka o konie, a dla psycholozek o salki
 std::vector<kolejka_info_wstazki> kolejka_ze_wstazkami = {}; // dla skrzatow to kolejka o wstazki, a dla psycholozek o pacjentow
@@ -147,7 +115,6 @@ int ile_jest_przedemna(std::vector<kolejka_info> kolejka_z_info, kolejka_info za
     if (it != kolejka_z_info.end()) 
     {
         int index = it - kolejka_z_info.begin();
-	//printf("Przedemna jest %d koni. Moj numer to %d \n",index, rank);
         return index + 1;
     }
     return -1;
@@ -179,8 +146,6 @@ void *receive_loop_skrzat(void * arg) {
         MPI_Status status;
         
         MPI_Recv(msg, 3, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
-
-	//printf("Odebralem wiadomosc od %d. Moj numer to %d", status.MPI_SOURCE, rank);
         
         switch(status.MPI_TAG){
 
@@ -243,50 +208,22 @@ void *receive_loop_skrzat(void * arg) {
                 printf("Lamport: %d. Moj Lamport: %d.Odebralem ACK_ZGODA od %d Moj nr: %d \n",msg[1],zegar ,status.MPI_SOURCE, rank);
 
 		break;
-            /* To bedzie potrzebne jesli beda psycholozki
-	    
-	    case INFO_KONIE:
-                pthread_mutex_lock(&konie_mutex);
-                    kolejka.erase(kolejka.begin());
-                pthread_mutex_unlock(&konie_mutex);
 
-
-            case INFO_WSTAZKI:
-            //TODO: usuwanie odpowiedniego procesu z kolejki,a nie pierwszego
-                pthread_mutex_lock(&wstazki_mutex);
-                kolejka_ze_wstazkami.erase(kolejka_ze_wstazkami.begin());
-                wstazki += msg[1];
-                pthread_mutex_unlock(&wstazki_mutex);
-		*/
 		
 		case INFO_ZASOBY:
 
-//			
-//			for(const kolejka_info &k : kolejka){
-//				std::cout<<"Kolejka przed, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
-//			}
-
+	
 			 pthread_mutex_lock(&konie_mutex);
 			 usun_z_vectora(kolejka, status.MPI_SOURCE);
 	 		 pthread_mutex_unlock(&konie_mutex);
 
-//			for(const kolejka_info &k : kolejka){
-//				std::cout<<"Kolejka po, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
-//			}
-
-//			for(const kolejka_info_wstazki &k : kolejka_ze_wstazkami){
-//				std::cout<<"Kolejka przed, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
-//			}
 
 			pthread_mutex_lock(&wstazki_mutex);
 			usun_z_vectora_wstazek(kolejka_ze_wstazkami, status.MPI_SOURCE);
        			wstazki+=msg[2];
 			pthread_mutex_unlock(&wstazki_mutex);	
 
-//			for(const kolejka_info_wstazki &k : kolejka_ze_wstazkami){
-//				std::cout<<"Kolejka po, proces "<< k.id << " Moj numer procesu "<<rank<<"\n";
-//			}
-			
+		
 			printf("Odebralem INFO_ZASOBY od %d. Moj numer to %d. \n", status.MPI_SOURCE, rank);
 			break;	
         }
@@ -315,11 +252,9 @@ pthread_t watek_odbiorczy;
 pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
 
         while(true){
-            stan = ZASPOKOJONY;
-                sleep(rand() % MAX_CZAS);
+            sleep(rand() % MAX_CZAS);
             int wstazki_skrzata = rand() % W;
             zgody = 0;
-            stan = CZEKA_NA_KONIA;
 
             pthread_mutex_lock(&lamport_mutex);
             msg[0] = rank;
@@ -338,25 +273,22 @@ pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
         }
         pthread_mutex_unlock(&wysylanie_mutex);
 
-        while(zgody!=size){//or?
-            //uwu
+        while(zgody!=size){
+
         }
 
 	printf("Uzyskalem zgody na konie. Moj numer to %d. \n",rank);
 
-
         while (ile_jest_przedemna(kolejka, moje_zamowienie_koni) > KONIE)
         {
-            /* code */
+ 
         }
-        
+     
         //TUTAJ BIERZE KONIA JAK JEST W DOBRYM MIEJSCU KOLEJKI
         //JESLI JEST W MIEJSCU KOLEJKI GDZIE MIEJSCE <= ILOSC MAX KONI
 	printf("Mam konia. Moj numer to %d. \n", rank);
 
         zgody = 0;
-
-        stan = CZEKA_NA_WSTAZKI;
 
         pthread_mutex_lock(&lamport_mutex);
         msg[0] = rank;
@@ -376,21 +308,20 @@ pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
         }
         pthread_mutex_unlock(&wysylanie_mutex);
 
-        while(zgody!=size ){//or?
-            //uwu
+        while(zgody!=size ){
+ 
         }
 
 	printf("Uzyskalem zgody na wstazki. Moj numer to %d. \n",rank);
         while (suma_wstazek(kolejka_ze_wstazkami,moje_zamowienie_wstazki) > W)
         {
-            /* code */
+          
         }
         printf("Mam wstazki. Moj numer to %d. \n", rank);
 
         //TUTAJ BIERZE WSTAZKI
         //JESLI SUMA WSTAZEK JEGO I OSOB W KOLEJCE PRZED NIM JEST <= MAX ILOSCI WSTAZEK
     
-        stan = ZAPLATA;
         sleep(rand() % MAX_CZAS);
 
 	pthread_mutex_lock(&wysylanie_mutex);
@@ -399,15 +330,6 @@ pthread_create(&watek_odbiorczy, NULL, receive_loop_skrzat, 0);
 		printf("Lamport: %d . Wysłałem INFO_ZASOBY do %d . Moj nr:%d \n", zegar, i, rank); 
 	}
 	pthread_mutex_unlock(&wysylanie_mutex);
-       // pthread_mutex_lock(&kolejka_mutex);
-        
-        //std::remove(kolejka.begin(), kolejka.end(), moje_zamowienie_koni);
-        //kolejka.erase( , kolejka.end());
-        //pthread_mutex_unlock(&kolejka_mutex);
-
-       // pthread_mutex_lock(&kolejka_ze_wstazkami_mutex);
-        //kolejka_ze_wstazkami.erase(std::remove(kolejka_ze_wstazkami.begin(), kolejka_ze_wstazkami.end(), moje_zamowienie_wstazki), kolejka_ze_wstazkami.end());
-        //pthread_mutex_unlock(&kolejka_ze_wstazkami_mutex);
-
+       
         }
 }
